@@ -1,27 +1,24 @@
 # -*- coding: utf-8 -*-
 import config
 import requests
-from urllib import urlencode
+from urllib.parse import urlencode
 from flask import request, Blueprint, g
 import flask
 import logging
 import json
 from libs.crossdomain import crossdomain
-from authorization import require_application_auth
-from authorization import require_auth
-from authorization import require_application_or_person_auth
+from .authorization import require_application_auth
+from .authorization import require_auth
+from .authorization import require_application_or_person_auth
 from libs.response_meta import ResponseMeta
 from libs.util import make_response
 
 from models.customer import Customer
-from rpc import post_message
-from rpc import send_group_notification_s
-from rpc import get_offline_count
-import rpc
+from . import rpc
 
 app = Blueprint('message', __name__)
 
-im_url=config.IM_RPC_URL
+im_url = config.IM_RPC_URL
 
     
 #发送群组消息
@@ -29,11 +26,12 @@ im_url=config.IM_RPC_URL
 @require_application_auth
 def post_group_message():
     appid = request.appid
-    obj = json.loads(request.data)
-    
-    res = post_message(appid, obj["sender"], obj["receiver"], 
-                               "group", obj["content"])
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
 
+    res = rpc.post_group_message(appid, obj["sender"], obj["receiver"], obj["content"])
     if res.status_code == 200:
         return flask.make_response("", 200)
     else:
@@ -45,11 +43,12 @@ def post_group_message():
 @require_application_auth
 def post_peer_messages():
     appid = request.appid
-    obj = json.loads(request.data)
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
 
-    resp = post_message(appid, obj["sender"], obj["receiver"], 
-                               "peer", obj["content"])
-
+    resp = rpc.post_peer_message(appid, obj["sender"], obj["receiver"], obj["content"])
     if resp.status_code == 200:
         return flask.make_response("", 200)
     else:
@@ -60,18 +59,14 @@ def post_peer_messages():
 @require_application_auth
 def post_notification():
     appid = request.appid
-    obj = json.loads(request.data)
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
+    
     uid = obj["receiver"]
     content = obj["content"]
-
-    params = {
-        "appid":appid,
-        "uid":uid
-    }
-    url = im_url + "/post_notification?" + urlencode(params)
-
-    headers = {"Content-Type":"text/plain; charset=UTF-8"}
-    resp = requests.post(url, data=content.encode("utf8"), headers=headers)
+    resp = rpc.post_peer_notification(appid, uid, content)
     if resp.status_code == 200:
         return flask.make_response("", 200)
     else:
@@ -83,18 +78,14 @@ def post_notification():
 @require_application_auth
 def post_system_message():
     appid = request.appid
-    obj = json.loads(request.data)
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
+
     uid = obj["receiver"]
     content = obj["content"]
-
-    params = {
-        "appid":appid,
-        "uid":uid
-    }
-    url = im_url + "/post_system_message?" + urlencode(params)
-
-    headers = {"Content-Type":"text/plain; charset=UTF-8"}
-    resp = requests.post(url, data=content.encode("utf8"), headers=headers)
+    resp = rpc.post_system_message(appid, uid, content)
     if resp.status_code == 200:
         return flask.make_response("", 200)
     else:
@@ -106,26 +97,20 @@ def post_system_message():
 @require_application_auth
 def post_room_message():
     appid = request.appid
-    obj = json.loads(request.data)
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
+
     sender = obj["sender"]
     receiver = obj["receiver"]
     content = obj["content"]
-
-    params = {
-        "appid":appid,
-        "uid":sender,
-        "room":receiver
-    }
-    url = im_url + "/post_room_message?" + urlencode(params)
-
-    headers = {"Content-Type":"text/plain; charset=UTF-8"}
-    resp = requests.post(url, data=content.encode("utf8"), headers=headers)
+    
+    resp = rpc.post_room_message(appid, sender, receiver, content)
     if resp.status_code == 200:
         return flask.make_response("", 200)
     else:
         return flask.make_response(resp.content, resp.status_code)
-
-
 
 #发送群通知消息
 @app.route('/messages/groups/notifications', methods=['POST'])
@@ -133,12 +118,14 @@ def post_room_message():
 def post_group_notification():
     appid = request.appid
 
-    obj = json.loads(request.data)
+    obj = request.get_json(force=True, silent=True, cache=False)
+    if obj is None:
+        logging.debug("json decode err:%s", e)
+        raise ResponseMeta(400, "json decode error")
 
     group_id = obj["group_id"]
     content = obj["content"]
-
-    resp = send_group_notification_s(appid, group_id, content, [])
+    resp = rpc.post_group_notification_s(appid, group_id, content, [])
     if resp.status_code == 200:
         return flask.make_response("", 200)
     else:
@@ -185,14 +172,6 @@ def get_history_message():
 def dequeue_message():
     appid = request.appid
     uid = request.uid
-
-    obj = json.loads(request.data)
-    msgid = obj["msgid"] if obj.has_key("msgid") else 0
-    if not msgid:
-        raise ResponseMeta(400, "invalid msgid")
-
-    r = rpc.dequeue_message(appid, uid, msgid)
-    logging.debug("dequue message:%s", r)
     return make_response(200, {"data":{"success":True}})
 
 @app.route('/messages/offline', methods=['GET'])
@@ -222,7 +201,7 @@ def get_offline_message():
     }
 
     #获取离线消息数目
-    count = get_offline_count(appid, uid, platform_id, device_id)
+    count = rpc.get_offline_count(appid, uid, platform_id, device_id)
     new = 1 if count > 0 else 0
     data = {"data":{"count":count, "new":new}}
     return make_response(200, data)
